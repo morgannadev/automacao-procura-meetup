@@ -4,52 +4,105 @@ from botcity.web import WebBot, Browser, By
 # Import for integration with BotCity Maestro SDK
 from botcity.maestro import *
 
+from funcoes import *
+
 # Disable errors if we are not connected to Maestro
 BotMaestroSDK.RAISE_NOT_CONNECTED = False
 
 
 def main():
-    # Runner passes the server url, the id of the task being executed,
-    # the access token and the parameters that this task receives (when applicable).
     maestro = BotMaestroSDK.from_sys_args()
-    ## Fetch the BotExecution with details from the task, including parameters
     execution = maestro.get_execution()
 
-    print(f"Task ID is: {execution.task_id}")
-    print(f"Task Parameters are: {execution.parameters}")
+    # busca as credenciais
+    credencial_email = maestro.get_credential(label="login_meetup", key="email")
+    credencial_senha = maestro.get_credential(label="login_meetup", key="senha")
+
+    # busca o parâmetro de pesquisa
+    evento_para_pesquisar = execution.parameters.get("evento_para_pesquisar")
+    local_para_evento = execution.parameters.get("local_para_evento")
+    distancia_para_evento = execution.parameters.get("distancia_para_evento")  
 
     bot = WebBot()
 
-    # Configure whether or not to run on headless mode
+    # significa que vamos visualizar a execução, não será em background
     bot.headless = False
 
-    # Uncomment to change the default Browser to Firefox
+    # vamos utilizar o firefox como browser
     bot.browser = Browser.FIREFOX
 
-    # Uncomment to set the WebDriver path
-    bot.driver_path = "resources\geckodriver.exe"
+    # informa o caminho do webdriver
+    bot.driver_path = r"resources\geckodriver.exe"
 
-    # Opens the Meetup website.
-    bot.browse("https://www.meetup.com/")
+    try:
+        # abre o site do meetup
+        bot.browse("https://www.meetup.com/")
 
-    # Implement here your logic...
-    botao_entrar = bot.find_element("login-link", By.ID)
-    botao_entrar.click()
+        # encontra o login para clicar
+        botao_entrar = bot.find_element("login-link", By.ID)
+        botao_entrar.click()
 
-    # Wait 3 seconds before closing
-    bot.wait(3000)
+        # aguarda 1 segundo
+        bot.wait(1000)
 
-    # Finish and clean up the Web Browser
-    # You MUST invoke the stop_browser to avoid
-    # leaving instances of the webdriver open
-    bot.stop_browser()
+        fazer_login(bot, credencial_email, credencial_senha)
 
-    # Uncomment to mark this task as finished on BotMaestro
-    # maestro.finish_task(
-    #     task_id=execution.task_id,
-    #     status=AutomationTaskFinishStatus.SUCCESS,
-    #     message="Task Finished OK."
-    # )
+        bot.enter()
+
+        bot.wait(3000)
+
+        # informa o evento que vai pesquisar
+        campo_pesquisa = bot.find_element("keyword-bar-in-search", By.ID)
+        campo_pesquisa.send_keys(evento_para_pesquisar)
+
+        # damos o tab para mudar para o campo de local
+        bot.tab()
+
+        # seleciona o conteúdo que estiver para poder digitar em cima o valor recebido
+        bot.control_a()
+
+        bot.type_keys(local_para_evento)
+        bot.wait(2000)
+
+        # seta para baixo para selecionar a primeira opção
+        bot.type_down()    
+        bot.enter()
+
+        bot.wait(2000)
+
+        botao_distancia = bot.find_element("event-distance-filter-drop-down", By.ID)
+        botao_distancia.click()
+
+        verificar_distancia(bot, int(distancia_para_evento))
+
+        informacoes_evento = bot.find_elements('//div[@class="w-full overflow-hidden"]', By.XPATH)
+
+        procurar_eventos(maestro, informacoes_evento)
+
+        status = AutomationTaskFinishStatus.SUCCESS
+        mensagem = "Busca de eventos finalizada com sucesso"
+
+    except Exception as erro:
+        status = AutomationTaskFinishStatus.FAILED
+        mensagem = "Busca de eventos finalizada com erro"
+
+        bot.screenshot("erro.png")
+
+        maestro.error(
+            task_id=maestro.task_id, 
+            exception=erro,
+            screenshot="erro.png"
+        )
+
+    finally:
+        # fecha o browser
+        bot.stop_browser()
+
+        maestro.finish_task(
+            task_id=execution.task_id,
+            status=status,
+            message=mensagem
+        )    
 
 
 def not_found(label):
